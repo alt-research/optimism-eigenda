@@ -5,13 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
+	"github.com/ethereum-optimism/optimism/op-service/eigenda"
+	"github.com/ethereum-optimism/optimism/op-service/pb/calldata"
+
+	"github.com/ethereum-optimism/optimism/op-service/eth"
+	"github.com/ethereum-optimism/optimism/op-service/retry"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
-
-	"github.com/ethereum-optimism/optimism/op-service/eth"
+	"google.golang.org/protobuf/proto"
 )
 
 // CalldataSource is a fault tolerant approach to fetching data.
@@ -80,7 +85,28 @@ func DataFromEVMTransactions(dsCfg DataSourceConfig, batcherAddr common.Address,
 	out := []eth.Data{}
 	for _, tx := range txs {
 		if isValidBatchTx(tx, dsCfg.l1Signer, dsCfg.batchInboxAddress, batcherAddr) {
-			out = append(out, tx.Data())
+			data := calldata.Calldata{}
+			if err := proto.Unmarshal(tx.Data(), &data); err != nil {
+				log.Warn("unable to decode calldata from tx", "tx.hash", tx.Hash().Hex(), "err", err)
+				return nil
+			}
+			switch data.Value.(type) {
+			case *calldata.Calldata_Raw:
+				log.Info("successfully retrieved data from raw calldata", "tx.hash", tx.Hash().Hex())
+				out = append(out, data.GetRaw())
+			case *calldata.Calldata_EigendaRef:
+				// digest := hex.EncodeToString(data.GetDigest().GetPayload())
+				result, err := retry.Do(context.Background(), 3, retry.Fixed(time.Second), func() ([]byte, error) {
+					ctx := eigenda.WithLogger(context.Background(), log)
+					return eigenda.RetrieveBlob(ctx, data.GetEigendaRef().GetBatchHeaderHash(), data.GetEigendaRef().GetBlobIndex())
+				})
+				if err != nil {
+					log.Warn("get batcher transaction from eigenda failed after 3 times retry", "tx.hash", tx.Hash().Hex(), "err", err)
+					return nil
+				}
+				log.Info("successfully retrieved data from eigenda", "tx.hash", tx.Hash().Hex())
+				out = append(out, result)
+			}
 		}
 	}
 	return out

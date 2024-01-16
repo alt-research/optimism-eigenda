@@ -4,6 +4,8 @@ go 1.21
 
 require (
 	github.com/BurntSushi/toml v1.3.2
+	github.com/Layr-Labs/eigenda/api v0.1.1
+	github.com/Netflix/go-env v0.0.0-20220526054621-78278af1949d
 	github.com/btcsuite/btcd v0.24.0
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0
@@ -46,6 +48,7 @@ require (
 	golang.org/x/sync v0.6.0
 	golang.org/x/term v0.16.0
 	golang.org/x/time v0.5.0
+	google.golang.org/protobuf v1.31.0
 	gorm.io/driver/postgres v1.5.4
 	gorm.io/gorm v1.25.5
 )
@@ -211,7 +214,8 @@ require (
 	golang.org/x/sys v0.16.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.14.0 // indirect
-	google.golang.org/protobuf v1.31.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20230711160842-782d3b101e98 // indirect
+	google.golang.org/grpc v1.58.3 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

@@ -10,16 +10,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/log"
-
+	"github.com/Layr-Labs/eigenda/api/grpc/disperser"
 	"github.com/ethereum-optimism/optimism/op-batcher/metrics"
 	"github.com/ethereum-optimism/optimism/op-node/rollup"
 	"github.com/ethereum-optimism/optimism/op-node/rollup/derive"
 	"github.com/ethereum-optimism/optimism/op-service/dial"
+	"github.com/ethereum-optimism/optimism/op-service/eigenda"
 	"github.com/ethereum-optimism/optimism/op-service/eth"
+	"github.com/ethereum-optimism/optimism/op-service/pb/calldata"
+	"github.com/ethereum-optimism/optimism/op-service/retry"
 	"github.com/ethereum-optimism/optimism/op-service/txmgr"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
+	"google.golang.org/protobuf/proto"
 )
 
 var ErrBatcherNotRunning = errors.New("batcher is not running")
@@ -360,7 +364,36 @@ func (l *BatchSubmitter) publishTxToL1(ctx context.Context, queue *txmgr.Queue[t
 // This is a blocking method. It should not be called concurrently.
 func (l *BatchSubmitter) sendTransaction(txdata txData, queue *txmgr.Queue[txData], receiptsCh chan txmgr.TxReceipt[txData]) error {
 	// Do the gas estimation offline. A value of 0 will cause the [txmgr] to estimate the gas limit.
-	data := txdata.Bytes()
+	data, _ := proto.Marshal(&calldata.Calldata{
+		Value: &calldata.Calldata_Raw{
+			Raw: txdata.Bytes(),
+		},
+	})
+	ctx := eigenda.WithLogger(context.Background(), l.Log)
+	if blob, err := retry.Do(context.Background(), 3, retry.Fixed(time.Second), func() (*disperser.BlobInfo, error) {
+		res, err := eigenda.DisperseBlob(ctx, data)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
+	}); err != nil {
+		l.Log.Warn("put batcher transaction to eigenda failed after 3 times retry, falling back to raw calldata", "err", err)
+		err = nil
+	} else {
+		quorumIDs := make([]uint32, len(blob.BlobHeader.BlobQuorumParams))
+		for i := range quorumIDs {
+			quorumIDs[i] = blob.BlobHeader.BlobQuorumParams[i].QuorumNumber
+		}
+		data, _ = proto.Marshal(&calldata.Calldata{
+			Value: &calldata.Calldata_EigendaRef{
+				EigendaRef: &calldata.EigenDARef{
+					BatchHeaderHash: blob.BlobVerificationProof.BatchMetadata.BatchHeaderHash,
+					BlobIndex:       blob.BlobVerificationProof.BlobIndex,
+				},
+			},
+		})
+		l.Log.Info("put batcher transaction to eigenda successfully, send ref to L1")
+	}
 
 	var candidate *txmgr.TxCandidate
 	if l.Config.UseBlobs {

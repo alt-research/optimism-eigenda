@@ -100,6 +100,8 @@ services:
       - "${PWD}/test-jwt-secret.txt:/config/test-jwt-secret.txt"
       - "${PWD}/../.devnet/rollup.json:/rollup.json"
       - op_log:/op_log
+    env_file:
+      - .eigenda.env
 
   op-proposer:
     depends_on:
@@ -160,6 +162,8 @@ services:
       OP_BATCHER_METRICS_ENABLED: "true"
       OP_BATCHER_RPC_ENABLE_ADMIN: "true"
       OP_BATCHER_BATCH_TYPE: 0
+    env_file:
+      - .eigenda.env
 
   artifact-server:
     depends_on:
